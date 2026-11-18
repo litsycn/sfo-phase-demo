@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SFO 相位向量与频谱泄漏</title>
+<style>
+  :root { color-scheme: light; font: 15px/1.5 "Source Sans 3", system-ui, sans-serif; color: #172f39; background: #f3f6f4; }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  main { max-width: 1080px; margin: auto; padding: clamp(14px, 3vw, 34px); }
+  h1 { margin: 0 0 5px; font-size: clamp(24px, 4vw, 36px); letter-spacing: -.04em; }
+  h2 { font-size: 16px; margin: 0 0 6px; }
+  p { margin: 0; }
+  .formula { color: #435d66; font-family: "IBM Plex Mono", monospace; }
+  .controls { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 15px; margin: 18px 0 12px; }
+  .slider-label { display: flex; justify-content: space-between; gap: 8px; }
+  input[type=range] { width: 100%; margin: 8px 0 0; accent-color: #007d77; }
+  input[type=number] { width: 5em; font: inherit; padding: 6px 8px; border: 1px solid #9caeb0; border-radius: 5px; }
+  output, .readout { font-variant-numeric: tabular-nums; }
+  .readout { color: #435d66; margin-bottom: 14px; }
+  .plots { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+  .panel { min-width: 0; padding: 13px; border: 1px solid #d4e0dd; border-radius: 10px; background: #fff; }
+  .energy { grid-column: 1 / -1; }
+  canvas { display: block; width: 100%; height: 260px; }
+  .energy canvas { height: 185px; }
+  @media (max-width: 580px) { .plots { grid-template-columns: 1fr; } }
+</style>
+<main>
+  <h1>SFO 相位向量与频谱泄漏</h1>
+  <p class="formula">N = 64 · k = 17 · vₙ = exp[j2π(k/(1+ε) − q)n/N]</p>
+  <div class="controls">
+    <div>
+      <label class="slider-label" for="epsilon">采样频偏 ε <output id="epsilonValue" for="epsilon"></output></label>
+      <input id="epsilon" type="range" min="-0.1" max="0.1" step="0.0005" value="0">
+    </div>
+    <label for="bin">FFT 频点 q <input id="bin" type="number" min="0" max="63" step="1" value="16"></label>
+  </div>
+  <p class="readout" id="readout"></p>
+  <div class="plots">
+    <section class="panel"><h2>单位圆上的 64 个向量</h2><canvas id="vectors" role="img" aria-label="FFT 各采样对应的单位向量"></canvas></section>
+    <section class="panel"><h2>合向量与 ε 扫描轨迹</h2><canvas id="sum" role="img" aria-label="合向量终点随采样频偏变化的轨迹"></canvas></section>
+    <section class="panel energy"><h2>合向量的模平方 |Σvₙ|²</h2><canvas id="energy" role="img" aria-label="合向量的模平方随采样频偏变化的曲线"></canvas></section>
+  </div>
+</main>
+<script>
+  'use strict';
+  const N = 64, k = 17;
+  const epsilonInput = document.querySelector('#epsilon');
+  const binInput = document.querySelector('#bin');
+  const vectorCanvas = document.querySelector('#vectors');
+  const sumCanvas = document.querySelector('#sum');
+  const energyCanvas = document.querySelector('#energy');
+  const teal = '#007d77', orange = '#bd491f', grid = '#cedad8';
+  let q = Number(binInput.value);
+  let sweep = [], sumRadius = 1, energyBound = 1;
+
+  function termsAt(epsilon, bin) {
+    const phaseStep = (2 * Math.PI / N) * (k / (1 + epsilon) - bin);
+    return Array.from({ length: N }, (_, n) => [
+      Math.cos(phaseStep * n), Math.sin(phaseStep * n)
+    ]);
+  }
+
+  function sumTerms(terms) {
+    let real = 0, imag = 0;
+    for (const [x, y] of terms) { real += x; imag += y; }
+    return [real, imag];
+  }
+
+  function refreshSweep() {
+    // Include all slider positions and their midpoints in the trajectory.
+    sweep = Array.from({ length: 801 }, (_, i) => {
+      const epsilon = (i - 400) / 4000;
+      const [real, imag] = sumTerms(termsAt(epsilon, q));
+      return { epsilon, real, imag, energy: real * real + imag * imag };
+    });
+    const maximum = Math.max(...sweep.map(point => point.energy));
+    sumRadius = Math.max(1, 1.12 * Math.sqrt(maximum));
+    energyBound = Math.max(1, 1.12 * maximum);
+  }
+
+  function prepare(canvas) {
+    const { width, height } = canvas.getBoundingClientRect();
+    const scale = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.font = '12px system-ui, sans-serif';
+    return { ctx, width, height };
+  }
+
+  function path(ctx, points, color, width = 1) {
+    if (!points.length) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(...points[0]);
+    for (const point of points.slice(1)) ctx.lineTo(...point);
+    ctx.stroke();
+  }
+
+  function dot(ctx, [x, y], color, radius) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  function arrow(ctx, start, end, color, width, head) {
+    path(ctx, [start, end], color, width);
+    const [x, y] = end;
+    if (Math.hypot(x - start[0], y - start[1]) < head) return;
+    const angle = Math.atan2(y - start[1], x - start[0]);
+    const back = offset => [x - head * Math.cos(angle + offset), y - head * Math.sin(angle + offset)];
+    path(ctx, [back(-0.5), end, back(0.5)], color, width);
+  }
+
+  function complexPlane(canvas, bound) {
+    const { ctx, width, height } = prepare(canvas);
+    const radius = Math.max(12, Math.min(width / 2 - 35, height / 2 - 23));
+    const origin = [width / 2, height / 2];
+    const project = (x, y) => [origin[0] + x * radius / bound, origin[1] - y * radius / bound];
+    path(ctx, [project(-bound, 0), project(bound, 0)], grid);
+    path(ctx, [project(0, -bound), project(0, bound)], grid);
+    ctx.fillStyle = '#435d66';
+    ctx.fillText('Re', ...project(bound, -bound * 0.09));
+    ctx.fillText('Im', ...project(bound * 0.07, bound));
+    return { ctx, project };
+  }
+
+  function drawVectors(terms) {
+    const { ctx, project } = complexPlane(vectorCanvas, 1.13);
+    const [x, y] = project(0, 0);
+    ctx.beginPath();
+    ctx.arc(x, y, project(1, 0)[0] - x, 0, 2 * Math.PI);
+    ctx.strokeStyle = grid;
+    ctx.stroke();
+    for (const [index, [real, imag]] of terms.entries()) {
+      const color = `hsl(${155 + 75 * index / (N - 1)} 67% 36% / .56)`;
+      arrow(ctx, [x, y], project(real, imag), color, 1, 5);
+    }
+  }
+
+  function drawSum(real, imag) {
+    const { ctx, project } = complexPlane(sumCanvas, sumRadius);
+    path(ctx, sweep.map(point => project(point.real, point.imag)), '#9bbfbb', 1.5);
+    const tip = project(real, imag);
+    arrow(ctx, project(0, 0), tip, orange, 2.5, 10);
+    dot(ctx, tip, orange, 4);
+  }
+
+  function drawEnergy(epsilon, energy) {
+    const { ctx, width, height } = prepare(energyCanvas);
+    const left = 49, right = width - 21, top = 11, bottom = height - 26;
+    const project = (x, y) => [left + (x + 0.1) * (right - left) / 0.2, bottom - y * (bottom - top) / energyBound];
+    ctx.fillStyle = '#435d66';
+    for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
+      const mark = energyBound * fraction;
+      const [, y] = project(0, mark);
+      path(ctx, [[left, y], [right, y]], grid);
+      ctx.fillText(Number(mark.toPrecision(3)).toString(), 3, y + 4);
+    }
+    ctx.textAlign = 'center';
+    for (const value of [-0.1, -0.05, 0, 0.05, 0.1]) {
+      const [x] = project(value, 0);
+      ctx.fillText(String(value), x, bottom + 17);
+    }
+    path(ctx, sweep.map(point => project(point.epsilon, point.energy)), teal, 2);
+    path(ctx, [project(epsilon, 0), project(epsilon, energy)], '#e6ad99');
+    dot(ctx, project(epsilon, energy), orange, 4);
+  }
+
+  function render() {
+    const epsilon = Number(epsilonInput.value);
+    const terms = termsAt(epsilon, q);
+    const [real, imag] = sumTerms(terms);
+    const magnitude = Math.hypot(real, imag);
+    const energy = magnitude ** 2;
+    document.querySelector('#epsilonValue').value = epsilon.toFixed(4);
+    document.querySelector('#readout').textContent =
+      `接收频点 ${(k / (1 + epsilon)).toFixed(3)} · |Σvₙ| = ${magnitude.toFixed(3)} · |Σvₙ|² = ${energy.toFixed(3)}`;
+    drawVectors(terms);
+    drawSum(real, imag);
+    drawEnergy(epsilon, energy);
+  }
+
+  epsilonInput.addEventListener('input', render);
+  binInput.addEventListener('input', () => {
+    if (!binInput.value || !binInput.validity.valid) return;
+    q = Number(binInput.value);
+    refreshSweep();
+    render();
+  });
+  binInput.addEventListener('change', () => { binInput.value = String(q); });
+  refreshSweep();
+  render();
+  new ResizeObserver(render).observe(document.querySelector('.plots'));
+</script>
+</html>
