@@ -11,41 +11,129 @@
   h1 { margin: 0 0 5px; font-size: clamp(24px, 4vw, 36px); letter-spacing: -.04em; }
   h2 { font-size: 16px; margin: 0 0 6px; }
   p { margin: 0; }
-  .formula { color: #435d66; font-family: "IBM Plex Mono", monospace; }
+  .formula { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 18px; color: #435d66; }
+  .formula math { font-size: clamp(19px, 2.7vw, 24px); }
   .controls { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 15px; margin: 18px 0 12px; }
   .slider-label { display: flex; justify-content: space-between; gap: 8px; }
-  input[type=range] { width: 100%; margin: 8px 0 0; accent-color: #007d77; }
+  .epsilon-control { --thumb-size: 16px; }
+  input[type=range] { display: block; width: 100%; height: 20px; margin: 4px 0 0; appearance: none; background: transparent; cursor: pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height: 4px; background: #b8cdca; border-radius: 2px; }
+  input[type=range]::-webkit-slider-thumb { appearance: none; width: var(--thumb-size); height: var(--thumb-size); margin-top: -6px; border-radius: 50%; background: #007d77; }
+  input[type=range]::-moz-range-track { height: 4px; background: #b8cdca; border-radius: 2px; }
+  input[type=range]::-moz-range-thumb { width: var(--thumb-size); height: var(--thumb-size); border: 0; border-radius: 50%; background: #007d77; }
+  .epsilon-scale { position: relative; margin: 0 calc(var(--thumb-size) / 2); height: 24px; color: #435d66; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .epsilon-scale span { position: absolute; left: var(--position); transform: translateX(-50%); white-space: nowrap; }
+  .epsilon-scale span::before { content: ""; display: block; width: 1px; height: 5px; margin: 0 auto 1px; background: #688582; }
+  .epsilon-scale .start { transform: translateX(-8px); }
+  .epsilon-scale .end { transform: translateX(calc(-100% + 8px)); }
+  .epsilon-scale .start::before { margin-left: 8px; }
+  .epsilon-scale .end::before { margin-right: 8px; }
+  .minor-tick { position: absolute; top: 0; width: 1px; height: 3px; background: #a5b9b6; }
+  .minor-tick.even { height: 5px; background: #829c98; }
+  .control-options { display: grid; align-content: start; justify-items: start; gap: 6px; }
+  .tick-sound { color: #435d66; font-size: 13px; }
+  .tick-sound input { accent-color: #007d77; }
   input[type=number] { width: 5em; font: inherit; padding: 6px 8px; border: 1px solid #9caeb0; border-radius: 5px; }
   output, .readout { font-variant-numeric: tabular-nums; }
-  .readout { color: #435d66; margin-bottom: 14px; }
+  .readout { display: grid; gap: 9px; margin-bottom: 14px; }
+  .readout .formula { color: #233e47; }
+  .readout math { font-size: clamp(17px, 2.3vw, 21px); }
   .plots { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
   .panel { min-width: 0; padding: 13px; border: 1px solid #d4e0dd; border-radius: 10px; background: #fff; }
   .energy { grid-column: 1 / -1; }
   canvas { display: block; width: 100%; height: 260px; }
   .energy canvas { height: 185px; }
   @media (max-width: 580px) { .plots { grid-template-columns: 1fr; } }
+  @media (max-width: 390px) { .controls { grid-template-columns: 1fr; } }
 </style>
 <main>
   <h1>SFO 相位向量与频谱泄漏</h1>
-  <p class="formula">N = 64 · k = 17 · vₙ = exp[j2π(k/(1+ε) − q)n/N]</p>
-  <div class="controls">
-    <div>
-      <label class="slider-label" for="epsilon">采样频偏 ε <output id="epsilonValue" for="epsilon"></output></label>
-      <input id="epsilon" type="range" min="-0.1" max="0.1" step="0.0005" value="0">
-    </div>
-    <label for="bin">FFT 频点 q <input id="bin" type="number" min="0" max="63" step="1" value="16"></label>
+  <div class="formula">
+    <math display="inline">
+      <msub><mi>v</mi><mi>n</mi></msub>
+      <mo>=</mo>
+      <msup>
+        <mi mathvariant="normal">e</mi>
+        <mrow>
+          <mi>j</mi><mn>2</mn><mi>π</mi>
+          <mo>(</mo><mfrac><mi>k</mi><mrow><mn>1</mn><mo>+</mo><mi>ε</mi></mrow></mfrac><mo>−</mo><mi>q</mi><mo>)</mo>
+          <mfrac><mi>n</mi><mi>N</mi></mfrac>
+        </mrow>
+      </msup>
+    </math>
+    <math><mi>N</mi><mo>=</mo><mn>64</mn><mo>,</mo><mi>k</mi><mo>=</mo><mn>17</mn></math>
   </div>
-  <p class="readout" id="readout"></p>
+  <div class="controls">
+    <div class="epsilon-control">
+      <div class="slider-label">
+        <label for="epsilon">采样频偏 ε</label>
+        <output for="epsilon"><math><mi>ε</mi><mo>=</mo><mn id="epsilonValue">0.0000</mn></math></output>
+      </div>
+      <input id="epsilon" type="range" min="-0.1" max="0.1" step="0.0005" value="0">
+      <div class="epsilon-scale" id="epsilonScale" aria-hidden="true">
+        <span class="start" style="--position: 0%">−0.10</span>
+        <span style="--position: 25%">−0.05</span>
+        <span style="--position: 50%">0</span>
+        <span style="--position: 75%">+0.05</span>
+        <span class="end" style="--position: 100%">+0.10</span>
+      </div>
+    </div>
+    <div class="control-options">
+      <label for="bin">FFT 频点 q <input id="bin" type="number" min="0" max="63" step="1" value="16"></label>
+      <label class="tick-sound"><input id="tickSound" type="checkbox" checked> 刻度提示音</label>
+    </div>
+  </div>
+  <div class="readout">
+    <div class="formula">
+      <math aria-label="合向量的求和公式">
+        <mi>S</mi><mo>=</mo>
+        <munderover><mo largeop="true" movablelimits="false">∑</mo><mrow><mi>n</mi><mo>=</mo><mn>0</mn></mrow><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow></munderover>
+        <msub><mi>v</mi><mi>n</mi></msub><mo>=</mo>
+        <munderover><mo largeop="true" movablelimits="false">∑</mo><mrow><mi>n</mi><mo>=</mo><mn>0</mn></mrow><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow></munderover>
+        <msup>
+          <mi mathvariant="normal">e</mi>
+          <mrow>
+            <mi>j</mi><mn>2</mn><mi>π</mi>
+            <mo>(</mo><mfrac><mi>k</mi><mrow><mn>1</mn><mo>+</mo><mi>ε</mi></mrow></mfrac><mo>−</mo><mi>q</mi><mo>)</mo>
+            <mfrac><mi>n</mi><mi>N</mi></mfrac>
+          </mrow>
+        </msup>
+      </math>
+    </div>
+    <div class="formula">
+      <math aria-label="合向量的复数形式">
+        <mi>S</mi><mo>≈</mo><mn id="sumReal"></mn><mo id="sumImagSign">+</mo><mn id="sumImagAbs"></mn><mi>j</mi>
+      </math>
+      <math aria-label="合向量在复平面中的坐标">
+        <mo>(</mo><mi mathvariant="normal">Re</mi><mi>S</mi><mo>,</mo><mi mathvariant="normal">Im</mi><mi>S</mi><mo>)</mo><mo>≈</mo>
+        <mo>(</mo><mn id="vectorReal"></mn><mo>,</mo><mn id="vectorImag"></mn><mo>)</mo>
+      </math>
+    </div>
+    <div class="formula">
+      <math aria-label="接收频点">
+        <mfrac><mi>k</mi><mrow><mn>1</mn><mo>+</mo><mi>ε</mi></mrow></mfrac><mo>≈</mo><mn id="receivedBin"></mn>
+      </math>
+      <math aria-label="合向量的模"><mo>|</mo><mi>S</mi><mo>|</mo><mo>≈</mo><mn id="sumMagnitude"></mn></math>
+      <math aria-label="能量等于合向量的模平方">
+        <mi>E</mi><mo>=</mo><msup><mrow><mo>|</mo><mi>S</mi><mo>|</mo></mrow><mn>2</mn></msup>
+        <mo>=</mo><msup><mrow><mo>(</mo><mi mathvariant="normal">Re</mi><mi>S</mi><mo>)</mo></mrow><mn>2</mn></msup>
+        <mo>+</mo><msup><mrow><mo>(</mo><mi mathvariant="normal">Im</mi><mi>S</mi><mo>)</mo></mrow><mn>2</mn></msup>
+        <mo>≈</mo><mn id="sumEnergy"></mn>
+      </math>
+    </div>
+  </div>
   <div class="plots">
     <section class="panel"><h2>单位圆上的 64 个向量</h2><canvas id="vectors" role="img" aria-label="FFT 各采样对应的单位向量"></canvas></section>
     <section class="panel"><h2>合向量与 ε 扫描轨迹</h2><canvas id="sum" role="img" aria-label="合向量终点随采样频偏变化的轨迹"></canvas></section>
-    <section class="panel energy"><h2>合向量的模平方 |Σvₙ|²</h2><canvas id="energy" role="img" aria-label="合向量的模平方随采样频偏变化的曲线"></canvas></section>
+    <section class="panel energy"><h2>合向量能量 <math><mi>E</mi><mo>=</mo><msup><mrow><mo>|</mo><mi>S</mi><mo>|</mo></mrow><mn>2</mn></msup></math></h2><canvas id="energy" role="img" aria-label="合向量的模平方随采样频偏变化的曲线"></canvas></section>
   </div>
 </main>
 <script>
   'use strict';
   const N = 64, k = 17;
   const epsilonInput = document.querySelector('#epsilon');
+  const epsilonScale = document.querySelector('#epsilonScale');
+  const tickSound = document.querySelector('#tickSound');
   const binInput = document.querySelector('#bin');
   const vectorCanvas = document.querySelector('#vectors');
   const sumCanvas = document.querySelector('#sum');
@@ -53,6 +141,48 @@
   const teal = '#007d77', orange = '#bd491f', grid = '#cedad8';
   let q = Number(binInput.value);
   let sweep = [], sumRadius = 1, energyBound = 1;
+  const minorStep = 0.005;
+  const epsilonMin = Number(epsilonInput.min);
+  const tickCount = Math.round((Number(epsilonInput.max) - epsilonMin) / minorStep);
+  let lastTick = Math.floor((Number(epsilonInput.value) - epsilonMin) / minorStep + 1e-9);
+  let audioContext;
+  let lastClickTime = -Infinity;
+
+  for (let i = 1; i < tickCount; i++) {
+    if (i % 10 === 0) continue;
+    const tick = document.createElement('i');
+    tick.className = i % 2 === 0 ? 'minor-tick even' : 'minor-tick';
+    tick.style.left = `${100 * i / tickCount}%`;
+    epsilonScale.append(tick);
+  }
+
+  function enableTickAudio() {
+    if (!tickSound.checked || !window.AudioContext) return;
+    audioContext ??= new AudioContext();
+    if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+  }
+
+  function playTick(epsilon) {
+    const tick = Math.floor((epsilon - epsilonMin) / minorStep + 1e-9);
+    if (tick === lastTick) return;
+    lastTick = tick;
+    if (!tickSound.checked || audioContext?.state !== 'running') return;
+    const now = audioContext.currentTime;
+    if (now - lastClickTime < 0.026) return;
+    lastClickTime = now;
+
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(tick % 10 === 0 ? 930 : 690, now);
+    oscillator.frequency.exponentialRampToValueAtTime(260, now + 0.02);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.09, now + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.022);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.024);
+  }
 
   function termsAt(epsilon, bin) {
     const phaseStep = (2 * Math.PI / N) * (k / (1 + epsilon) - bin);
@@ -171,21 +301,39 @@
     dot(ctx, project(epsilon, energy), orange, 4);
   }
 
+  function writeNumber(id, value, digits = 3) {
+    const rounded = value.toFixed(digits);
+    document.getElementById(id).textContent =
+      Number(rounded) === 0 ? (0).toFixed(digits) : rounded.replace('-', '−');
+  }
+
   function render() {
     const epsilon = Number(epsilonInput.value);
     const terms = termsAt(epsilon, q);
     const [real, imag] = sumTerms(terms);
     const magnitude = Math.hypot(real, imag);
     const energy = magnitude ** 2;
-    document.querySelector('#epsilonValue').value = epsilon.toFixed(4);
-    document.querySelector('#readout').textContent =
-      `接收频点 ${(k / (1 + epsilon)).toFixed(3)} · |Σvₙ| = ${magnitude.toFixed(3)} · |Σvₙ|² = ${energy.toFixed(3)}`;
+    writeNumber('epsilonValue', epsilon, 4);
+    writeNumber('sumReal', real);
+    writeNumber('sumImagAbs', Math.abs(imag));
+    document.getElementById('sumImagSign').textContent = Number(imag.toFixed(3)) < 0 ? '−' : '+';
+    writeNumber('vectorReal', real);
+    writeNumber('vectorImag', imag);
+    writeNumber('receivedBin', k / (1 + epsilon));
+    writeNumber('sumMagnitude', magnitude);
+    writeNumber('sumEnergy', energy);
     drawVectors(terms);
     drawSum(real, imag);
     drawEnergy(epsilon, energy);
   }
 
-  epsilonInput.addEventListener('input', render);
+  epsilonInput.addEventListener('pointerdown', enableTickAudio);
+  epsilonInput.addEventListener('keydown', enableTickAudio);
+  tickSound.addEventListener('change', enableTickAudio);
+  epsilonInput.addEventListener('input', () => {
+    playTick(Number(epsilonInput.value));
+    render();
+  });
   binInput.addEventListener('input', () => {
     if (!binInput.value || !binInput.validity.valid) return;
     q = Number(binInput.value);
