@@ -1,4 +1,4 @@
-# SFO 相位向量与频谱泄漏
+# SFO 相位向量与频谱泄漏演示
 
 [打开交互演示](https://litsycn.github.io/sfo-phase-demo/)
 
